@@ -73,6 +73,7 @@ Fazy planu:
    2. Określenie wpływu każdej z wybranych cech.
    3. Identyfikacja *nie oznaczonych* botów.
    4. Analiza wpływu zidentyfikowanych botów na aktywność użytkowników.
+- \+ Wisienka na torcie - Efekt końcowy
 6. Wizualizacja efektów pracy.
    1. Rozplanowanie plakatu.
    2. Zapisanie najważniejszych elementów.
@@ -89,6 +90,7 @@ Fazy planu:
   - 0.95 miary precyzji,
   - 0.9 miary f1.
 - (22.11.2024) Faza 5: Gotowe wizualizacje oraz wnioski posiadające kluczowe cechy aktywności botów oraz ich wagę.
+- \+ Wisienka na torcie - Efekt końcowy
 - (22.11.2024) Faza 6: Gotowy plakat przedstawiajacy opis oraz wyniki projektu.
 
 \
