@@ -1,4 +1,5 @@
 import configparser
+import csv
 import functools
 import os
 import time
@@ -23,8 +24,13 @@ reddit = praw.Reddit(
 
 DIRECTORY = "data"
 TIME_FILTER = "month"
-LIMIT = None
+LIMIT = 10
 FETCHED_SUBREDDITS_FILE = f"{DIRECTORY}\\fetched_subreddits.txt"
+USER_DATA_FILE = f"{DIRECTORY}\\user_data.csv"
+FETCHED_USERS_FILE = f"{DIRECTORY}\\fetched_users.txt"
+
+MAX_WORKERS = os.cpu_count() * 6
+print(f"Max workers: {MAX_WORKERS}")
 
 
 def retry(exceptions, tries=4, delay=3, backoff=2):
@@ -60,9 +66,6 @@ def process_submission(submission, subreddit):
         "score": submission.score,
         "upvote_ratio": submission.upvote_ratio,
         "date": pd.to_datetime(submission.created_utc, unit="s"),
-        # "author_karma": submission.author.link_karma + submission.author.comment_karma if submission.author else None,
-        # "author_account_age": (pd.to_datetime('now') - pd.to_datetime(submission.author.created_utc, unit="s")).days if submission.author else None,
-        # "author_is_verified": submission.author.has_verified_email if submission.author else None,
     }
 
     comments = []
@@ -80,13 +83,65 @@ def process_submission(submission, subreddit):
             "parent_id": comment.parent_id,
             "stickied": comment.stickied,
             "date": pd.to_datetime(comment.created_utc, unit="s"),
-            # "author_karma": comment.author.link_karma + comment.author.comment_karma if comment.author else None,
-            # "author_account_age": (pd.to_datetime('now') - pd.to_datetime(comment.author.created_utc, unit="s")).days if comment.author else None,
-            # "author_is_verified": comment.author.has_verified_email if comment.author else None,
         }
         comments.append(comment_data)
 
     return post_data, comments
+
+
+@retry(TooManyRequests)
+def process_user(username):
+    user = reddit.redditor(username)
+    user_data = {
+        "username": username,
+        "link_karma": user.link_karma,
+        "comment_karma": user.comment_karma,
+        "account_age": (
+            pd.to_datetime("now") - pd.to_datetime(user.created_utc, unit="s")
+        ).days,
+        "is_verified": user.has_verified_email,
+    }
+    return user_data
+
+
+@retry(TooManyRequests)
+def fetch_user_activity(username):
+    user = reddit.redditor(username)
+    submissions = []
+    comments = []
+
+    for submission in user.submissions.new(limit=LIMIT):
+        submissions.append(
+            {
+                "username": username,
+                "name": submission.name,
+                "title": submission.title,
+                "text": submission.selftext,
+                "is_original_content": submission.is_original_content,
+                "num_comments": submission.num_comments,
+                "score": submission.score,
+                "upvote_ratio": submission.upvote_ratio,
+                "date": pd.to_datetime(submission.created_utc, unit="s"),
+            }
+        )
+
+    for comment in user.comments.new(limit=LIMIT):
+        comments.append(
+            {
+                "username": username,
+                "body": comment.body,
+                "post_title": comment.submission.title,
+                "score": comment.score,
+                "num_replies": len(comment.replies),
+                "is_submitter": comment.is_submitter,
+                "id": comment.id,
+                "parent_id": comment.parent_id,
+                "stickied": comment.stickied,
+                "date": pd.to_datetime(comment.created_utc, unit="s"),
+            }
+        )
+
+    return submissions, comments
 
 
 def remove_duplicates(submissions):
@@ -107,19 +162,8 @@ def get_posts_for_subreddit(subreddit: str):
     submissions = list(
         reddit.subreddit(subreddit).top(time_filter=TIME_FILTER, limit=LIMIT)
     )
-    top1_submissions = list(reddit.subreddit(subreddit).top(time_filter="year", limit=LIMIT))
-    top2_submissions = list(reddit.subreddit(subreddit).controversial(time_filter="year", limit=LIMIT))
-    top3_submissions = list(reddit.subreddit(subreddit).top(time_filter="month", limit=LIMIT))
-    top4_submissions = list(reddit.subreddit(subreddit).controversial(time_filter="month", limit=LIMIT))
-    top5_submissions = list(reddit.subreddit(subreddit).top(time_filter="week", limit=LIMIT))
-    new_submissions = list(reddit.subreddit(subreddit).new(limit=LIMIT))
-    hot_submissions = list(reddit.subreddit(subreddit).hot(limit=LIMIT))
-    rising_submissions = list(reddit.subreddit(subreddit).rising(limit=LIMIT))
 
-    all_submissions = top1_submissions + top2_submissions + top3_submissions + top4_submissions + top5_submissions + new_submissions + hot_submissions + rising_submissions
-    submissions = remove_duplicates(all_submissions)
-
-    with ThreadPoolExecutor() as executor:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = [
             executor.submit(process_submission, submission, subreddit)
             for submission in submissions
@@ -137,6 +181,65 @@ def get_posts_for_subreddit(subreddit: str):
     return posts, comments
 
 
+def get_users_from_data(posts, comments):
+    users = set()
+    for post in posts:
+        if post["username"]:
+            users.add(post["username"])
+    for comment in comments:
+        if comment["username"]:
+            users.add(comment["username"])
+    return users
+
+
+def get_fetched_users():
+    if not os.path.isfile(FETCHED_USERS_FILE):
+        return set()
+    with open(FETCHED_USERS_FILE, "r") as file:
+        return set(line.strip() for line in file)
+
+
+def mark_user_as_fetched(username):
+    with open(FETCHED_USERS_FILE, "a") as file:
+        file.write(f"{username}\n")
+
+
+def get_user_data(posts, comments):
+    fetched_users = get_fetched_users()
+    users = get_users_from_data(posts, comments)
+    users_to_fetch = users - fetched_users
+
+    user_data = []
+    user_posts = []
+    user_comments = []
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [executor.submit(process_user, user) for user in users_to_fetch]
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Processing user data"
+        ):
+            user_data.append(future.result())
+
+        futures = [
+            executor.submit(fetch_user_activity, user) for user in users_to_fetch
+        ]
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Fetching user activity"
+        ):
+            user_submissions, user_comments_data = future.result()
+            user_posts.extend(user_submissions)
+            user_comments.extend(user_comments_data)
+
+    user_df = pd.DataFrame(user_data)
+    user_posts_df = pd.DataFrame(user_posts)
+    user_comments_df = pd.DataFrame(user_comments)
+
+    for user in users_to_fetch:
+        mark_user_as_fetched(user)
+
+    return user_df, user_posts_df, user_comments_df
+
+
 def main(subreddit: str):
     posts, comments = get_posts_for_subreddit(subreddit)
     print(
@@ -146,12 +249,22 @@ def main(subreddit: str):
     posts_df = pd.DataFrame(posts)
     comments_df = pd.DataFrame(comments)
 
-    return posts_df, comments_df
+    user_df, user_posts_df, user_comments_df = get_user_data(posts, comments)
+
+    combined_posts_df = pd.concat([posts_df, user_posts_df]).drop_duplicates(
+        subset=["name"]
+    )
+    combined_comments_df = pd.concat([comments_df, user_comments_df]).drop_duplicates(
+        subset=["id"]
+    )
+
+    return combined_posts_df, combined_comments_df, user_df
 
 
-def save_data(posts_df, comments_df, directory, subreddit):
+def save_data(posts_df, comments_df, user_df, directory, subreddit):
     posts_file = f"{directory}\\all_posts.csv"
     comments_file = f"{directory}\\all_comments.csv"
+    user_file = USER_DATA_FILE
 
     if not os.path.isfile(posts_file):
         posts_df.to_csv(posts_file, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
@@ -162,6 +275,11 @@ def save_data(posts_df, comments_df, directory, subreddit):
         comments_df.to_csv(comments_file, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
     else:
         comments_df.to_csv(comments_file, mode="a", header=False, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
+
+    if not os.path.isfile(user_file):
+        user_df.to_csv(user_file, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
+    else:
+        user_df.to_csv(user_file, mode="a", header=False, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
 
     print(f"Data saved for subreddit {subreddit}")
 
@@ -188,11 +306,9 @@ if __name__ == "__main__":
     fetched_subreddits = get_fetched_subreddits()
 
     subreddits = [
-        "funny",
+        # "funny",
         "AskReddit",
-        "gaming",
-        "worldnews",
-        "todayilearned",
+        # "gaming",
     ]
 
     for subreddit in subreddits:
@@ -200,11 +316,12 @@ if __name__ == "__main__":
             print(f"Subreddit {subreddit} already fetched. Skipping.")
             continue
 
-        posts_df, comments_df = main(subreddit)
-        save_data(posts_df, comments_df, DIRECTORY, subreddit)
+        posts_df, comments_df, user_df = main(subreddit)
+        save_data(posts_df, comments_df, user_df, DIRECTORY, subreddit)
         mark_subreddit_as_fetched(subreddit)
         print(f"Data processed for subreddit {subreddit}\n")
         print(f"Time elapsed for subreddit {subreddit}: {datetime.now() - start}")
 
     print("All data saved successfully\n")
     print(f"Time elapsed (final): {datetime.now() - start}")
+
