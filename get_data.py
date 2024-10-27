@@ -107,17 +107,17 @@ def get_posts_for_subreddit(subreddit: str):
     submissions = list(
         reddit.subreddit(subreddit).top(time_filter=TIME_FILTER, limit=LIMIT)
     )
-    # top1_submissions = list(reddit.subreddit(subreddit).top(time_filter="year", limit=LIMIT))
-    # top2_submissions = list(reddit.subreddit(subreddit).controversial(time_filter="year", limit=LIMIT))
-    # top3_submissions = list(reddit.subreddit(subreddit).top(time_filter="month", limit=LIMIT))
-    # top4_submissions = list(reddit.subreddit(subreddit).controversial(time_filter="month", limit=LIMIT))
-    # top5_submissions = list(reddit.subreddit(subreddit).top(time_filter="week", limit=LIMIT))
-    # new_submissions = list(reddit.subreddit(subreddit).new(limit=LIMIT))
-    # hot_submissions = list(reddit.subreddit(subreddit).hot(limit=LIMIT))
-    # rising_submissions = list(reddit.subreddit(subreddit).rising(limit=LIMIT))
+    top1_submissions = list(reddit.subreddit(subreddit).top(time_filter="year", limit=LIMIT))
+    top2_submissions = list(reddit.subreddit(subreddit).controversial(time_filter="year", limit=LIMIT))
+    top3_submissions = list(reddit.subreddit(subreddit).top(time_filter="month", limit=LIMIT))
+    top4_submissions = list(reddit.subreddit(subreddit).controversial(time_filter="month", limit=LIMIT))
+    top5_submissions = list(reddit.subreddit(subreddit).top(time_filter="week", limit=LIMIT))
+    new_submissions = list(reddit.subreddit(subreddit).new(limit=LIMIT))
+    hot_submissions = list(reddit.subreddit(subreddit).hot(limit=LIMIT))
+    rising_submissions = list(reddit.subreddit(subreddit).rising(limit=LIMIT))
 
-    # all_submissions = top1_submissions + top2_submissions + top3_submissions + top4_submissions + top5_submissions + new_submissions + hot_submissions + rising_submissions
-    # submissions = remove_duplicates(all_submissions)
+    all_submissions = top1_submissions + top2_submissions + top3_submissions + top4_submissions + top5_submissions + new_submissions + hot_submissions + rising_submissions
+    submissions = remove_duplicates(all_submissions)
 
     with ThreadPoolExecutor() as executor:
         futures = [
@@ -154,14 +154,14 @@ def save_data(posts_df, comments_df, directory, subreddit):
     comments_file = f"{directory}\\all_comments.csv"
 
     if not os.path.isfile(posts_file):
-        posts_df.to_csv(posts_file, index=False)
+        posts_df.to_csv(posts_file, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
     else:
-        posts_df.to_csv(posts_file, mode="a", header=False, index=False)
+        posts_df.to_csv(posts_file, mode="a", header=False, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
 
     if not os.path.isfile(comments_file):
-        comments_df.to_csv(comments_file, index=False)
+        comments_df.to_csv(comments_file, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
     else:
-        comments_df.to_csv(comments_file, mode="a", header=False, index=False)
+        comments_df.to_csv(comments_file, mode="a", header=False, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
 
     print(f"Data saved for subreddit {subreddit}")
 
@@ -191,6 +191,8 @@ if __name__ == "__main__":
         "funny",
         "AskReddit",
         "gaming",
+        "worldnews",
+        "todayilearned",
     ]
 
     for subreddit in subreddits:

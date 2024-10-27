@@ -23,7 +23,7 @@ reddit = praw.Reddit(
 
 DIRECTORY = "data"
 TIME_FILTER = "month"
-LIMIT = 10
+LIMIT = None
 FETCHED_SUBREDDITS_FILE = f"{DIRECTORY}\\fetched_subreddits.txt"
 USER_DATA_FILE = f"{DIRECTORY}\\user_data.csv"
 FETCHED_USERS_FILE = f"{DIRECTORY}\\fetched_users.txt"
@@ -310,9 +310,9 @@ if __name__ == "__main__":
     fetched_subreddits = get_fetched_subreddits()
 
     subreddits = [
-        # "funny",
+        "funny",
         "AskReddit",
-        # "gaming",
+        "gaming",
     ]
 
     for subreddit in subreddits:

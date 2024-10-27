@@ -1,4 +1,5 @@
 import configparser
+import csv
 import functools
 import os
 import time
@@ -93,7 +94,7 @@ def process_user(username):
     user = reddit.redditor(username)
     user_data = {
         "username": username,
-        # "link_karma": user.link_karma,
+        "link_karma": user.link_karma,
         "comment_karma": user.comment_karma,
         "account_age": (
             pd.to_datetime("now") - pd.to_datetime(user.created_utc, unit="s")
@@ -266,19 +267,19 @@ def save_data(posts_df, comments_df, user_df, directory, subreddit):
     user_file = USER_DATA_FILE
 
     if not os.path.isfile(posts_file):
-        posts_df.to_csv(posts_file, index=False)
+        posts_df.to_csv(posts_file, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
     else:
-        posts_df.to_csv(posts_file, mode="a", header=False, index=False)
+        posts_df.to_csv(posts_file, mode="a", header=False, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
 
     if not os.path.isfile(comments_file):
-        comments_df.to_csv(comments_file, index=False)
+        comments_df.to_csv(comments_file, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
     else:
-        comments_df.to_csv(comments_file, mode="a", header=False, index=False)
+        comments_df.to_csv(comments_file, mode="a", header=False, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
 
     if not os.path.isfile(user_file):
-        user_df.to_csv(user_file, index=False)
+        user_df.to_csv(user_file, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
     else:
-        user_df.to_csv(user_file, mode="a", header=False, index=False)
+        user_df.to_csv(user_file, mode="a", header=False, index=False, escapechar='\\', quoting=csv.QUOTE_NONE)
 
     print(f"Data saved for subreddit {subreddit}")
 
