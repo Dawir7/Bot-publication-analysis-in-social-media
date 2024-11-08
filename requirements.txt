@@ -1,8 +1,13 @@
-praw==7.7.1
-transformers==4.40.0
+praw
 pandas==2.2.2
 matplotlib==3.8.4
-jupyter
+# jupyter
 numpy
-nltk
+# nltk
 plotly
+tqdm
+google-auth 
+google-auth-oauthlib 
+google-auth-httplib2 
+google-api-python-client
+python-dotenv
