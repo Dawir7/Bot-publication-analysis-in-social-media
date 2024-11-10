@@ -95,7 +95,7 @@ def is_weird_comment(comments):
 # New features
 def add_avg_cosine_similarity(df, comments_df):
     vectorizer = TfidfVectorizer()
-    grouped_comments = comments_df.groupby("username")["body"].apply(list)
+    grouped_comments = comments_df.groupby("username")["cleaned_body"].apply(list)
     avg_cosine_similarities = {}
 
     for username, comments in tqdm(
@@ -127,31 +127,25 @@ def add_avg_cosine_similarity(df, comments_df):
 
 
 def add_all_users_similarity(df, comments_df):
-    grouped_comments = (
-        comments_df.groupby("username")["body"]
-        .apply(lambda x: " ".join(x))
-        .reset_index()
-    )
+    sampled_comments = comments_df["cleaned_body"].sample(n=5000, random_state=42).tolist()
+
+    vectorizer = TfidfVectorizer()
+    sampled_matrix = vectorizer.fit_transform(sampled_comments)
+
+    grouped_comments = comments_df.groupby("username")["cleaned_body"].apply(list)
     all_users_similarities = {}
 
-    tfidf_vectorizer = TfidfVectorizer()
-    tfidf_matrix = tfidf_vectorizer.fit_transform(grouped_comments["body"])
-
-    for i, row in tqdm(
-        grouped_comments.iterrows(),
+    for username, comments in tqdm(
+        grouped_comments.items(),
         desc="Processing cosine similarities of comments",
         total=len(grouped_comments),
     ):
-        username = row["username"]
-        user_vector = tfidf_matrix[i]
-
-        if is_weird_comment([row["body"]]):
-            avg_cosine_similarity = 1.0
+        if len(comments) > 0:
+            user_matrix = vectorizer.transform(comments)
+            cosine_sim_matrix = cosine_similarity(user_matrix, sampled_matrix)
+            avg_cosine_similarity = cosine_sim_matrix.mean(axis=1).mean()
         else:
-            cosine_sim_matrix = cosine_similarity(user_vector, tfidf_matrix)
-            avg_cosine_similarity = (cosine_sim_matrix.sum() - 1) / (
-                len(grouped_comments) - 1
-            )
+            avg_cosine_similarity = None
 
         all_users_similarities[username] = avg_cosine_similarity
 
@@ -166,7 +160,7 @@ def add_all_users_similarity(df, comments_df):
 
 
 def add_comment_length_metrics(df, comments_df):
-    grouped_comments = comments_df.groupby("username")["body"].apply(list)
+    grouped_comments = comments_df.groupby("username")["cleaned_body"].apply(list)
 
     avg_lengths = {}
     max_lengths = {}
@@ -217,28 +211,32 @@ def add_comment_post_ratio(df, comments_df, posts_df):
 
 def add_average_thread_depth(df, comments_df):
     comments_df_copy = comments_df.copy()
-    parent_lookup = dict(zip(comments_df_copy["id"], comments_df_copy["parent_id"]))
 
     def calculate_depth(comment_id, parent_lookup):
         depth = 0
-
         while comment_id in parent_lookup and parent_lookup[comment_id].startswith(
             "t1_"
         ):
             parent_id = parent_lookup[comment_id]
-            comment_id = parent_id
+            comment_id = parent_id[3:]
             depth += 1
         return depth
 
-    comments_df_copy["depth"] = comments_df_copy["id"].apply(
-        lambda x: calculate_depth(x, parent_lookup)
-    )
+    comments_df_copy["depth"] = 0
+
+    for post_title, group in comments_df_copy.groupby("post_title"):
+        parent_lookup = dict(zip(group["id"], group["parent_id"]))
+        comments_df_copy.loc[group.index, "depth"] = group["id"].apply(
+            lambda x: calculate_depth(x, parent_lookup)
+        )
+
     avg_depth_per_user = (
         comments_df_copy.groupby("username")["depth"]
         .mean()
         .reset_index(name="avg_thread_depth")
     )
     df = df.merge(avg_depth_per_user, on="username", how="left")
+
     print("Feature avg_thread_depth created successfully.")
 
     return df
@@ -246,29 +244,38 @@ def add_average_thread_depth(df, comments_df):
 
 def add_parent_child_similarity(df, comments_df):
     comments_df_copy = comments_df.copy()
-    parent_lookup = dict(zip(comments_df_copy["id"], comments_df_copy["parent_id"]))
-    comment_vectors = dict(zip(comments_df_copy["id"], comments_df_copy["vector"]))
 
-    def calculate_highest_similarity(comment_id, parent_lookup, comment_vectors):
-        max_similarity = 0
+    def calculate_average_similarity(comment_id, parent_lookup, comment_vectors):
+        similarities = []
         current_id = comment_id
 
         while current_id in parent_lookup and parent_lookup[current_id].startswith(
             "t1_"
         ):
             parent_id = parent_lookup[current_id]
-            if parent_id in comment_vectors:
+            current_id = parent_id[3:]
+            if current_id in comment_vectors:
                 similarity = cosine_similarity(
-                    comment_vectors[comment_id], comment_vectors[parent_id]
+                    comment_vectors[comment_id], comment_vectors[current_id]
                 )[0, 0]
-                max_similarity = max(max_similarity, similarity)
-            current_id = parent_id
+                similarities.append(similarity)
 
-        return max_similarity
+        if similarities:
+            return sum(similarities) / len(similarities)
+        else:
+            return 0
 
-    comments_df_copy["similarity"] = comments_df_copy["id"].apply(
-        lambda x: calculate_highest_similarity(x, parent_lookup, comment_vectors)
-    )
+    comments_df_copy["similarity"] = 0.0
+
+    for post_title, group in tqdm(
+        comments_df_copy.groupby("post_title"),
+        desc="Processing parent child similarity",
+    ):
+        parent_lookup = dict(zip(group["id"], group["parent_id"]))
+        comment_vectors = dict(zip(group["id"], group["vector"]))
+        comments_df_copy.loc[group.index, "similarity"] = group["id"].apply(
+            lambda x: calculate_average_similarity(x, parent_lookup, comment_vectors)
+        )
 
     user_similarity = (
         comments_df_copy.groupby("username")["similarity"].mean().reset_index()
@@ -566,7 +573,6 @@ def main(
     posts_df, comments_df, users_df = load_data(
         posts_file_path, comments_file_path, users_file_path
     )
-    
     x_df = create_features_pipeline(posts_df, comments_df, users_df)
     y_df = mark_bots(posts_df, comments_df, users_df)
 
