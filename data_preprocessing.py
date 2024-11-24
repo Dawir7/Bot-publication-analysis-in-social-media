@@ -12,11 +12,11 @@ from sklearn.preprocessing import normalize
 from tqdm import tqdm
 
 DIR = "data"
-comments_file_path = f"{DIR}\\all_comments-merged.csv"
-posts_file_path = f"{DIR}\\all_posts-merged.csv"
-users_file_path = f"{DIR}\\user_data-merged.csv"
-x_file_path = f"{DIR}\\features.csv"
-y_file_path = f"{DIR}\\labels.csv"
+comments_file_path = f"{DIR}/all_comments-merged.csv"
+posts_file_path = f"{DIR}/all_posts-merged.csv"
+users_file_path = f"{DIR}/user_data-merged.csv"
+x_file_path = f"{DIR}/features.csv"
+y_file_path = f"{DIR}/labels.csv"
 
 
 # Load data
@@ -372,13 +372,31 @@ def add_ngram_overlap(df, comments_df, n=2):
 
     return df
 
+def average_score(df, comments_df):
+    comments_df['score'] = comments_df['score'].fillna(0)
+    avg_score_per_user = comments_df.groupby('username')['score'].mean().reset_index(name='avg_score')
+    df = df.merge(avg_score_per_user, on='username', how='left')
+    
+    return df
+
+def average_num_replies(df, comments_df):
+    comments_df['num_replies'] = comments_df['num_replies'].fillna(0)
+    avg_num_replies_per_user = comments_df.groupby('username')['num_replies'].mean().reset_index(name='avg_num_replies')
+    df = df.merge(avg_num_replies_per_user, on='username', how='left')
+    
+    return df
+
+def average_stickied(df, comments_df):
+    comments_df['stickied'] = comments_df['stickied'].fillna(False)
+    avg_stickied_per_user = comments_df.groupby('username')['stickied'].mean().reset_index(name='avg_stickied')
+    df = df.merge(avg_stickied_per_user, on='username', how='left')
 
 # Label functions
 def count_slashes_and_emojis(comments_df):
     comments_df = comments_df.copy()
 
     def count_special_chars(text):
-        backslashes = text.count("\\")
+        backslashes = text.count("/")
         forwardslashes = text.count("/")
         emojis = len([char for char in text if emoji.is_emoji(char)])
         return backslashes + forwardslashes, emojis
@@ -481,6 +499,7 @@ def autolabel_bots(posts_df, comments_df, users_df):
 
     def is_bot(row):
         validaion_count = 0
+        validation_threshold = 3
 
         # Username patterns
         if username_pattern.search(
@@ -495,13 +514,13 @@ def autolabel_bots(posts_df, comments_df, users_df):
         # Low karma
         if row["link_karma"] < -30 or row["comment_karma"] < -30:
             validaion_count += 1
-            if validaion_count > 1:
+            if validaion_count > validation_threshold:
                 return True
 
         # Frequent low scores indicating low engagement
         if row["avg_score"] < 0.5 and row["num_posts"] + row["num_comments"] > 10:
             validaion_count += 1
-            if validaion_count > 1:
+            if validaion_count > validation_threshold:
                 return True
 
         # Consistent upvote ratios (either too low or too high)
@@ -509,13 +528,13 @@ def autolabel_bots(posts_df, comments_df, users_df):
             "avg_upvote_ratio"
         ] != 0:
             validaion_count += 1
-            if validaion_count > 1:
+            if validaion_count > validation_threshold:
                 return True
 
         # High comment-to-post ratio
         if row["link_karma"] > 10 * row["comment_karma"]:
             validaion_count += 1
-            if validaion_count > 1:
+            if validaion_count > validation_threshold:
                 return True
 
         return False
@@ -551,6 +570,9 @@ def create_features_pipeline(posts_df, comments_df, users_df):
     features_df = add_average_ttr(features_df, comments_df)
     features_df = add_average_flesch_kincaid_grade(features_df, comments_df)
     features_df = add_ngram_overlap(features_df, comments_df)
+    # features_df = average_score(features_df, comments_df)
+    # features_df = average_num_replies(features_df, comments_df)
+    # features_df = average_stickied(features_df, comments_df)
     print("All features created successfully.\n")
 
     # Fill NaN values with None
