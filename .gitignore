@@ -1,3 +1,7 @@
 *.ini
 # /data/
 venv/
+.venv/
+.github/
+.env
+amc-data-apikey.json
